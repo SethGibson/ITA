@@ -46,7 +46,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\include;$(CINDER_ROOT)\include;$(DSROOT)\Include;$(CINDER_ROOT)\blocks\Cinder-DSAPI\src;$(CINDER_ROOT)\blocks\Cinder-OpenCV3\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\include;$(CINDER_ROOT)\include;$(DSROOT)\Include;$(CINDER_ROOT)\blocks\Cinder-DSAPI\src</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;NOMINMAX;_WIN32_WINNT=0x0502;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -60,7 +60,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalDependencies>cinder-$(PlatformToolset)_d.lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(CINDER_ROOT)\lib\msw\$(PlatformTarget);$(DSROOT)\Lib;$(CINDER_ROOT)\blocks\Cinder-OpenCV3\lib\vc2013\x64</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(CINDER_ROOT)\lib\msw\$(PlatformTarget);$(DSROOT)\Lib</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
@@ -70,7 +70,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\include;$(CINDER_ROOT)\include;$(DSROOT)\Include;$(CINDER_ROOT)\blocks\Cinder-DSAPI\src;$(CINDER_ROOT)\blocks\Cinder-OpenCV3\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\include;$(CINDER_ROOT)\include;$(DSROOT)\Include;$(CINDER_ROOT)\blocks\Cinder-DSAPI\src</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;NOMINMAX;_WIN32_WINNT=0x0502;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <PrecompiledHeader />
@@ -86,7 +86,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalDependencies>cinder-$(PlatformToolset).lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(CINDER_ROOT)\lib\msw\$(PlatformTarget);$(DSROOT)\Lib;$(CINDER_ROOT)\blocks\Cinder-OpenCV3\lib\vc2013\x64</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(CINDER_ROOT)\lib\msw\$(PlatformTarget);$(DSROOT)\Lib</AdditionalLibraryDirectories>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <GenerateMapFile>true</GenerateMapFile>
       <SubSystem>Windows</SubSystem>
@@ -105,12 +105,12 @@
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>
-    <ClCompile Include="..\..\..\..\lib\Cinder\blocks\Cinder-DSAPI\src\CiDSAPI.cpp" />
+    <ClCompile Include="..\src\CiDSAPI.cpp" />
     <ClCompile Include="..\src\ITA_GridApp.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\..\lib\Cinder\blocks\Cinder-DSAPI\src\CiDSAPI.h" />
     <ClInclude Include="..\include\Resources.h" />
+    <ClInclude Include="..\src\CiDSAPI.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
