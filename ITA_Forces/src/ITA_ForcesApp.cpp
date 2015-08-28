@@ -10,6 +10,8 @@ using namespace ci::app;
 using namespace std;
 using namespace CinderDS;
 
+static int NUM_X = 1000;
+static int NUM_Y = 1000;
 struct Pt
 {
 	vec3 PPosition;
@@ -43,7 +45,8 @@ private:
 
 	void updateDS();
 
-	bool mIdle;
+	bool	mIdle,
+			mMouseInput;
 	
 	ivec2 mMousePos;
 
@@ -93,13 +96,16 @@ void ITA_ForcesApp::setupDS()
 
 void ITA_ForcesApp::setupGUI()
 {
-	mParamRadius = 0.15f;
-	mParamMagScale = 0.35f;
-	mParamDamping = 0.995;
+	mParamRadius = 0.2f;
+	mParamMagScale = 0.2f;
+	mParamDamping = 0.99f;
 	mParamMinDepth = 740.0f;
 	mParamMaxDepth = 810.0f;
+	mMouseInput = true;
 
 	mGUI = params::InterfaceGl::create("Settings", vec2(300,200));
+	mGUI->addParam<bool>("paramMouseInput", &mMouseInput).optionsStr("label='Mouse Input'");
+	mGUI->addSeparator();
 	mGUI->addParam<float>("paramRadius", &mParamRadius).optionsStr("label='Radius Scale'");
 	mGUI->addParam<float>("paramMagScale", &mParamMagScale).optionsStr("label='Magnitude Scale'");
 	mGUI->addParam<float>("paramDamping", &mParamDamping).optionsStr("label='Damping'");
@@ -122,9 +128,9 @@ void ITA_ForcesApp::setupScene()
 void ITA_ForcesApp::setupBuffers()
 {
 	mId = 1;
-	for (int x = 0; x < 960; ++x)
+	for (int x = 0; x < NUM_X; ++x)
 	{
-		for (int y = 0; y < 720; ++y)
+		for (int y = 0; y < NUM_Y; ++y)
 		{
 			float xA = lmap<float>(x, 0, 480, 0.0f, 1.0f);
 			float yA = lmap<float>(y, 0, 360, 0.0f, 1.0f);
@@ -180,24 +186,29 @@ void ITA_ForcesApp::setupShaders()
 
 void ITA_ForcesApp::mouseDown(MouseEvent event)
 {
-	mouseDrag(event);
+	if (mMouseInput)
+		mouseDrag(event);
 }
 
 void ITA_ForcesApp::mouseDrag( MouseEvent event )
 {
-	mIdle = false;
-	mMousePos = event.getPos();
-	if (event.isLeftDown())
-		mForceMode = 0.75f;
+	if (mMouseInput)
+	{
+		mIdle = false;
+		mMousePos = event.getPos();
+		if (event.isLeftDown())
+			mForceMode = 0.75f;
 
-	else if (event.isRightDown())
-		mForceMode = -0.25f;
+		else if (event.isRightDown())
+			mForceMode = -0.25f;
+	}
 
 }
 
 void ITA_ForcesApp::mouseUp(MouseEvent event)
 {
-	mIdle = true;
+	if (mMouseInput)
+		mIdle = true;
 }
 void ITA_ForcesApp::update()
 {
@@ -212,13 +223,14 @@ void ITA_ForcesApp::update()
 	mShaderTF->uniform("u_Radius", mParamRadius);
 	mShaderTF->uniform("u_MagScale", mParamMagScale);
 	mShaderTF->uniform("u_Damping", mParamDamping);
+	mShaderTF->uniform("u_Bounds", vec2(getWindowSize()));
 
 	gl::ScopedVao tfVao(mVao[mId]);
 	gl::ScopedState tfState(GL_RASTERIZER_DISCARD, true);
 
 	mTfo[1 - mId]->bind();
 	gl::beginTransformFeedback(GL_POINTS);
-	gl::drawArrays(GL_POINTS, 0, 960*720);
+	gl::drawArrays(GL_POINTS, 0, NUM_X*NUM_Y);
 	gl::endTransformFeedback();
 }
 
@@ -251,15 +263,21 @@ void ITA_ForcesApp::updateDS()
 		}
 	}
 
-	if (closest < 1000.0f)
+	if (!mMouseInput)
 	{
-		mIdle = false;
-		mForceMode = 0.75f;
-		mMousePos = vec2(closestPt)*vec2(3,2.5);
-	}
-	else
-	{
-		mIdle = true;
+		if (closest < 1000.0f)
+		{
+			mIdle = false;
+			mForceMode = 0.75f;
+			vec2 ws = (vec2)getWindowSize();
+			float scaleX = ws.x / 480.0f;
+			float scaleY = ws.y / 360.0f;
+			mMousePos = vec2(closestPt)*vec2(scaleX, scaleY);
+		}
+		else
+		{
+			mIdle = true;
+		}
 	}
 }
 
@@ -274,12 +292,14 @@ void ITA_ForcesApp::draw()
 	gl::ScopedVao vao(mVao[1-mId]);
 	gl::ScopedGlslProg shader(mShaderDraw);
 	gl::setDefaultShaderVars();
-	gl::drawArrays(GL_POINTS, 0, 960*720);
+	gl::drawArrays(GL_POINTS, 0, NUM_X*NUM_Y);
 
 	gl::color(ColorA(1, 1, 1, 0.5));
 
+	ivec2 ws = getWindowSize();
+
 	auto debugTex = gl::Texture2d::create(*mChanCv);
-	gl::draw(debugTex, Rectf(1200,720,1440,900));
+	gl::draw(debugTex, Rectf(ws.x-240,ws.y-180,ws.x,ws.y));
 
 	gl::disableAlphaBlending();
 	gl::color(Color::white());

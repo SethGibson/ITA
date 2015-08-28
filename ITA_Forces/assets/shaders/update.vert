@@ -8,7 +8,7 @@ uniform float	u_ForceScale;
 uniform float	u_Radius;
 uniform float	u_MagScale;
 uniform float	u_Damping;
-
+uniform vec2	u_Bounds;
 in vec3 v_Position;
 in vec3 v_Velocity;
 
@@ -31,11 +31,11 @@ void main()
     o_Position = v_Position + o_Velocity*u_ForceScale;
 	
 	if(o_Position.x <0 )
-		o_Position.x = 1440;
-	else if(o_Position.x>1440)
+		o_Position.x = u_Bounds.x;
+	else if(o_Position.x>u_Bounds.x)
 		o_Position.x = 0;
 	if(o_Position.y <0 )
-		o_Position.y = 900;
-	else if(o_Position.y>900)
-		o_Position.x = 0;
+		o_Position.y = u_Bounds.y;
+	else if(o_Position.y>u_Bounds.y)
+		o_Position.y = 0;
 }
