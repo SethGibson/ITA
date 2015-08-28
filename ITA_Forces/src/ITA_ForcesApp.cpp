@@ -37,6 +37,10 @@ private:
 	void setupShaders();
 	void setupGUI();
 
+	bool mIdle;
+	
+	ivec2 mMousePos;
+
 	gl::VaoRef					mVao[2];
 	gl::TransformFeedbackObjRef	mTfo[2];
 	gl::VboRef					mVboPos[2],
@@ -79,10 +83,12 @@ void ITA_ForcesApp::setupGUI()
 
 void ITA_ForcesApp::setupScene()
 {
+	mIdle = true;
 	getWindow()->setFullScreen(true);
 	setFrameRate(60.0f);
-	mForceMode = 1.0f;
+	mForceMode = 0.0f;
 	gl::enable(GL_PROGRAM_POINT_SIZE);
+	mMousePos = vec2(getWindowSize())*vec2(0.5);
 }
 
 void ITA_ForcesApp::setupBuffers()
@@ -151,20 +157,28 @@ void ITA_ForcesApp::mouseDown(MouseEvent event)
 
 void ITA_ForcesApp::mouseDrag( MouseEvent event )
 {
-	mForceMode = -0.25f;
+	mIdle = false;
+	mMousePos = event.getPos();
+	if (event.isLeftDown())
+		mForceMode = 0.75f;
+
+	else if (event.isRightDown())
+		mForceMode = -0.25f;
+
 }
 
 void ITA_ForcesApp::mouseUp(MouseEvent event)
 {
-	mForceMode = 1.0f;
+	mIdle = true;
 }
 void ITA_ForcesApp::update()
 {
+	if (mIdle)
+		mForceMode *= mParamDamping;
 	mId = 1 - mId;
-	auto mousePos = getMousePos();
-	console() << mousePos.x << ", " << mousePos.y << endl;
+
 	gl::ScopedGlslProg tfShader(mShaderTF);
-	mShaderTF->uniform("u_ForcePos", vec3(mousePos.x, mousePos.y, 0.0f));
+	mShaderTF->uniform("u_ForcePos", vec3(mMousePos.x, mMousePos.y, 0.0f));
 	mShaderTF->uniform("u_ForceScale", mForceMode);
 	mShaderTF->uniform("u_Radius", mParamRadius);
 	mShaderTF->uniform("u_MagScale", mParamMagScale);
