@@ -29,4 +29,13 @@ void main()
     
     o_Velocity *= u_Damping;
     o_Position = v_Position + o_Velocity*u_ForceScale;
+	
+	if(o_Position.x <0 )
+		o_Position.x = 1440;
+	else if(o_Position.x>1440)
+		o_Position.x = 0;
+	if(o_Position.y <0 )
+		o_Position.y = 900;
+	else if(o_Position.y>900)
+		o_Position.x = 0;
 }

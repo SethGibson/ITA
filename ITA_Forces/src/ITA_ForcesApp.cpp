@@ -3,10 +3,12 @@
 #include "cinder/gl/gl.h"
 #include "cinder/params/Params.h"
 #include "cinder/Rand.h"
+#include "CiDSAPI.h"
 
 using namespace ci;
 using namespace ci::app;
 using namespace std;
+using namespace CinderDS;
 
 struct Pt
 {
@@ -30,12 +32,16 @@ public:
 	void mouseUp(MouseEvent event) override;
 	void update() override;
 	void draw() override;
+	void cleanup() override;
 
 private:
 	void setupScene();
 	void setupBuffers();
 	void setupShaders();
 	void setupGUI();
+	void setupDS();
+
+	void updateDS();
 
 	bool mIdle;
 	
@@ -58,15 +64,31 @@ private:
 	params::InterfaceGlRef	mGUI;
 	float	mParamRadius,
 			mParamMagScale,
-			mParamDamping;
+			mParamDamping,
+			mParamMinDepth,
+			mParamMaxDepth;
+
+	CinderDSRef	mDS;
+	Channel8uRef	mChanCv;
+
+	
 };
 
 void ITA_ForcesApp::setup()
 {
 	setupGUI();
+	setupDS();
 	setupScene();
 	setupShaders();
 	setupBuffers();
+}
+
+void ITA_ForcesApp::setupDS()
+{
+	mDS = CinderDSAPI::create();
+	mDS->init();
+	mDS->initDepth(FrameSize::DEPTHSD, 60);
+	mDS->start();
 }
 
 void ITA_ForcesApp::setupGUI()
@@ -74,17 +96,23 @@ void ITA_ForcesApp::setupGUI()
 	mParamRadius = 0.15f;
 	mParamMagScale = 0.35f;
 	mParamDamping = 0.995;
+	mParamMinDepth = 740.0f;
+	mParamMaxDepth = 810.0f;
 
 	mGUI = params::InterfaceGl::create("Settings", vec2(300,200));
 	mGUI->addParam<float>("paramRadius", &mParamRadius).optionsStr("label='Radius Scale'");
 	mGUI->addParam<float>("paramMagScale", &mParamMagScale).optionsStr("label='Magnitude Scale'");
 	mGUI->addParam<float>("paramDamping", &mParamDamping).optionsStr("label='Damping'");
+	mGUI->addSeparator();
+	mGUI->addParam<float>("paramMinDepth", &mParamMinDepth).optionsStr("label='Min Depth'");
+	mGUI->addParam<float>("paramMaxDepth", &mParamMaxDepth).optionsStr("label='Max Depth'");
 }
 
 void ITA_ForcesApp::setupScene()
 {
 	mIdle = true;
-	getWindow()->setFullScreen(true);
+	getWindow()->setSize(1440, 900);
+	getWindow()->setPos(40, 40);
 	setFrameRate(60.0f);
 	mForceMode = 0.0f;
 	gl::enable(GL_PROGRAM_POINT_SIZE);
@@ -173,6 +201,7 @@ void ITA_ForcesApp::mouseUp(MouseEvent event)
 }
 void ITA_ForcesApp::update()
 {
+	updateDS();
 	if (mIdle)
 		mForceMode *= mParamDamping;
 	mId = 1 - mId;
@@ -193,9 +222,53 @@ void ITA_ForcesApp::update()
 	gl::endTransformFeedback();
 }
 
+void ITA_ForcesApp::updateDS()
+{
+	mDS->update();
+	auto depthChan = mDS->getDepthFrame();
+	mChanCv = Channel8u::create(depthChan->getWidth(), depthChan->getHeight());
+
+	auto iter = mChanCv->getIter();
+
+	float closest = 1000.0f;
+	ivec2 closestPt = ivec2();
+	while (iter.line())
+	{
+		while (iter.pixel())
+		{
+			iter.v() = 64;
+			float v = (float)depthChan->getValue(ivec2(iter.x(), iter.y()));
+			if (v > mParamMinDepth && v < mParamMaxDepth)
+			{
+				mChanCv->setValue(ivec2(iter.x(), iter.y()), 255);
+				if (v < closest)
+				{
+					closest = v;
+					closestPt.x = iter.x();
+					closestPt.y = iter.y();
+				}
+			}
+		}
+	}
+
+	if (closest < 1000.0f)
+	{
+		mIdle = false;
+		mForceMode = 0.75f;
+		mMousePos = vec2(closestPt)*vec2(3,2.5);
+	}
+	else
+	{
+		mIdle = true;
+	}
+}
+
 void ITA_ForcesApp::draw()
 {
+
 	gl::clear( Color( 0, 0, 0 ) ); 
+	gl::enableAlphaBlending();
+	gl::color(Color::white());
 	gl::setMatricesWindow(getWindowSize());
 
 	gl::ScopedVao vao(mVao[1-mId]);
@@ -203,8 +276,19 @@ void ITA_ForcesApp::draw()
 	gl::setDefaultShaderVars();
 	gl::drawArrays(GL_POINTS, 0, 960*720);
 
+	gl::color(ColorA(1, 1, 1, 0.5));
+
+	auto debugTex = gl::Texture2d::create(*mChanCv);
+	gl::draw(debugTex, Rectf(1200,720,1440,900));
+
+	gl::disableAlphaBlending();
+	gl::color(Color::white());
 	mGUI->draw();
-	
+}
+
+void ITA_ForcesApp::cleanup()
+{
+	mDS->stop();
 }
 
 CINDER_APP( ITA_ForcesApp, RendererGl )
