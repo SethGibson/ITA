@@ -16,12 +16,6 @@
     <Filter Include="Source Files\shaders">
       <UniqueIdentifier>{5f941f5e-07a9-45d5-b8dd-026abfcd3485}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\blocks">
-      <UniqueIdentifier>{259f4baa-3d75-47ef-a92c-b914d4721f7c}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\blocks\Cinder-DSAPI">
-      <UniqueIdentifier>{3a468469-ba1d-4b52-9e57-3431457671ae}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\ITA_ForcesApp.cpp">
@@ -33,16 +27,10 @@
     <ClInclude Include="..\include\Resources.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClCompile Include="..\src\CiDSAPI.cpp">
-      <Filter>Source Files\blocks\Cinder-DSAPI</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\Resources.h">
       <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\CiDSAPI.h">
-      <Filter>Source Files\blocks\Cinder-DSAPI</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

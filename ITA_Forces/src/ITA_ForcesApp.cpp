@@ -1,17 +1,36 @@
+#ifdef _DEBUG
+#pragma comment(lib, "libpxc_d.lib")
+#else
+#pragma comment(lib, "libpxc.lib")
+#endif
+
 #include "cinder/app/App.h"
 #include "cinder/app/RendererGl.h"
 #include "cinder/gl/gl.h"
+#include "cinder/Log.h"
 #include "cinder/params/Params.h"
 #include "cinder/Rand.h"
-#include "CiDSAPI.h"
+#include "pxcsensemanager.h"
+#include "pxchandmodule.h"
+#include "pxchanddata.h"
+#include "pxchandconfiguration.h"
+#include "pxcprojection.h"
 
 using namespace ci;
 using namespace ci::app;
 using namespace std;
-using namespace CinderDS;
 
-static int NUM_X = 1000;
-static int NUM_Y = 1000;
+const ivec2 NUM_PTS(1280,720);
+const ivec2 RGB_SIZE(640, 360);
+const ivec2 Z_SIZE(640, 480);
+const ivec2 WIN_SIZE(1280, 720);
+
+const float FORCE_A = 0.75f;
+const float FORCE_R = -0.75f;
+const float P_RADIUS = 1.5f;
+const float P_MAG = 2.5f;
+const float P_DAMP = 0.975f;
+
 struct Pt
 {
 	vec3 PPosition;
@@ -41,14 +60,20 @@ private:
 	void setupBuffers();
 	void setupShaders();
 	void setupGUI();
-	void setupDS();
+	void setupRS();
 
-	void updateDS();
+	void updateRS();
+	void getRSCursorPos();
+	void getRSGestureState();
+	vec2 remapPos(const vec2 &pPos);
 
 	bool	mIdle,
-			mMouseInput;
+			mMouseInput,
+			mIsRunning,
+			mHasHand,
+			mRepulsing;
 	
-	ivec2 mMousePos;
+	vector<vec3> mMousePos;
 
 	gl::VaoRef					mVao[2];
 	gl::TransformFeedbackObjRef	mTfo[2];
@@ -59,49 +84,117 @@ private:
 
 	int mId;
 
+	vec2			mActiveX,
+					mActiveY;
+
 	vector<vec3>	mPositions,
 					mVelocities;
 
-	float mForceMode;
+	float	mForceMode,
+			mNumInputs;
 
 	params::InterfaceGlRef	mGUI;
 	float	mParamRadius,
 			mParamMagScale,
-			mParamDamping,
-			mParamMinDepth,
-			mParamMaxDepth;
+			mParamDamping;
 
-	CinderDSRef	mDS;
-	Channel8uRef	mChanCv;
+	PXCSenseManager	*mRS;
+	PXCHandData		*mHandData;
+	PXCProjection	*mMapper;
 
-	
+	gl::Texture2dRef mTexRgb;
 };
 
 void ITA_ForcesApp::setup()
 {
 	setupGUI();
-	setupDS();
 	setupScene();
 	setupShaders();
 	setupBuffers();
+
+	setupRS();
 }
 
-void ITA_ForcesApp::setupDS()
+void ITA_ForcesApp::setupRS()
 {
-	mDS = CinderDSAPI::create();
-	mDS->init();
-	mDS->initDepth(FrameSize::DEPTHSD, 60);
-	mDS->start();
+	mHasHand = false;
+	mIsRunning = false;
+
+	mRS = PXCSenseManager::CreateInstance();
+	if (mRS == nullptr)
+	{
+		console() << "Unable to Create SenseManager" << endl;
+		return;
+	}
+	else
+	{
+		console() << "Created SenseManager" << endl;
+		auto stat = mRS->EnableStream(PXCCapture::STREAM_TYPE_COLOR, RGB_SIZE.x, RGB_SIZE.y, 60);
+		if (stat >= PXC_STATUS_NO_ERROR) {
+			console() << "Color Stream Enabled" << endl;
+		}
+		stat = mRS->EnableStream(PXCCapture::STREAM_TYPE_DEPTH, Z_SIZE.x, Z_SIZE.y, 60);
+		if (stat >= PXC_STATUS_NO_ERROR) {
+			console() << "Depth Stream Enabled" << endl;
+		}
+
+		stat = mRS->EnableHand();
+
+		if ((stat >= PXC_STATUS_NO_ERROR))//&& (handModule != nullptr))
+		{
+			stat = mRS->Init();
+			auto handModule = mRS->QueryHand();
+
+			if (stat >= PXC_STATUS_NO_ERROR)
+			{
+				auto depthSize = mRS->QueryCaptureManager()->QueryImageSize(PXCCapture::STREAM_TYPE_DEPTH);
+				console() << "DepthSize: " << to_string(depthSize.width) << " " << to_string(depthSize.height) << endl;
+
+				auto colorSize = mRS->QueryCaptureManager()->QueryImageSize(PXCCapture::STREAM_TYPE_COLOR);
+				console() << "ColorSize: " << to_string(colorSize.width) << " " << to_string(colorSize.height) << endl;
+
+				mHandData = handModule->CreateOutput();
+				auto cfg = handModule->CreateActiveConfiguration();
+				if (cfg != nullptr)
+				{
+					stat = cfg->SetTrackingMode(PXCHandData::TRACKING_MODE_CURSOR);
+					if (stat >= PXC_STATUS_NO_ERROR)
+						stat = cfg->EnableAllAlerts();
+					if (stat >= PXC_STATUS_NO_ERROR)
+						stat = cfg->EnableAllGestures(false);
+					if (stat >= PXC_STATUS_NO_ERROR)
+						stat = cfg->ApplyChanges();
+					if (stat >= PXC_STATUS_NO_ERROR)
+						cfg->Update();
+					if (stat >= PXC_STATUS_NO_ERROR)
+					{
+						console() << "Hand Tracking Enabled" << endl;
+						cfg->Release();
+						mRS->QueryCaptureManager()->QueryDevice()->SetMirrorMode(PXCCapture::Device::MIRROR_MODE_HORIZONTAL);
+						mIsRunning = true;
+					}
+				}
+				else {
+					console() << "Unable to Configure Hand Tracking" << endl;
+				}
+				mMapper = mRS->QueryCaptureManager()->QueryDevice()->CreateProjection();
+				if (mMapper==nullptr) {
+					CI_LOG_W("Unable to get coordinate mapper");
+				}
+			}
+			else
+				console() << "Unable to Start SenseManager" << endl;
+		}
+	}
 }
 
 void ITA_ForcesApp::setupGUI()
 {
-	mParamRadius = 0.2f;
-	mParamMagScale = 0.2f;
-	mParamDamping = 0.99f;
-	mParamMinDepth = 740.0f;
-	mParamMaxDepth = 810.0f;
-	mMouseInput = true;
+	mParamRadius = 0.25f;
+	mParamMagScale = 1.5f;
+	mParamDamping = 0.98f;
+	mMouseInput = false;
+	mNumInputs = 0.0f;
 
 	mGUI = params::InterfaceGl::create("Settings", vec2(300,200));
 	mGUI->addParam<bool>("paramMouseInput", &mMouseInput).optionsStr("label='Mouse Input'");
@@ -109,32 +202,32 @@ void ITA_ForcesApp::setupGUI()
 	mGUI->addParam<float>("paramRadius", &mParamRadius).optionsStr("label='Radius Scale'");
 	mGUI->addParam<float>("paramMagScale", &mParamMagScale).optionsStr("label='Magnitude Scale'");
 	mGUI->addParam<float>("paramDamping", &mParamDamping).optionsStr("label='Damping'");
-	mGUI->addSeparator();
-	mGUI->addParam<float>("paramMinDepth", &mParamMinDepth).optionsStr("label='Min Depth'");
-	mGUI->addParam<float>("paramMaxDepth", &mParamMaxDepth).optionsStr("label='Max Depth'");
 }
 
 void ITA_ForcesApp::setupScene()
 {
 	mIdle = true;
-	getWindow()->setSize(1440, 900);
-	getWindow()->setPos(40, 40);
-	setFrameRate(60.0f);
-	mForceMode = 0.0f;
+	mForceMode = FORCE_A;
+	mActiveX = vec2(20.0f, Z_SIZE.x - 20.0f);
+	mActiveY = vec2(20.0f, Z_SIZE.y - 20.0f);
+	mRepulsing = false;
+	mMousePos.push_back(vec3(getWindowSize(), 0.0)*vec3(0.5));
+	mMousePos.push_back(vec3(getWindowSize(), 0.0)*vec3(0.5));
+
 	gl::enable(GL_PROGRAM_POINT_SIZE);
-	mMousePos = vec2(getWindowSize())*vec2(0.5);
 }
 
 void ITA_ForcesApp::setupBuffers()
 {
 	mId = 1;
-	for (int x = 0; x < NUM_X; ++x)
+	auto bounds = vec2(getWindowSize());
+	for (int x = 0; x < NUM_PTS.x; ++x)
 	{
-		for (int y = 0; y < NUM_Y; ++y)
+		for (int y = 0; y < NUM_PTS.y; ++y)
 		{
-			float xA = lmap<float>(x, 0, 480, 0.0f, 1.0f);
-			float yA = lmap<float>(y, 0, 360, 0.0f, 1.0f);
-			mPositions.push_back(vec3(x, y, 0));
+			float xA = lmap<float>(x, 0, NUM_PTS.x, 0.0f, bounds.x);
+			float yA = lmap<float>(y, 0, NUM_PTS.y, 0.0f, bounds.y);
+			mPositions.push_back(vec3(xA, yA, 0));
 			mVelocities.push_back(vec3());
 		}
 	}
@@ -187,20 +280,23 @@ void ITA_ForcesApp::setupShaders()
 void ITA_ForcesApp::mouseDown(MouseEvent event)
 {
 	if (mMouseInput)
+	{
+		mIdle = false;
+		if (event.isLeftDown())
+			mForceMode = FORCE_A;
+
+		else if (event.isRightDown())
+			mForceMode = FORCE_R;
 		mouseDrag(event);
+	}
 }
 
 void ITA_ForcesApp::mouseDrag( MouseEvent event )
 {
 	if (mMouseInput)
 	{
-		mIdle = false;
-		mMousePos = event.getPos();
-		if (event.isLeftDown())
-			mForceMode = 0.75f;
-
-		else if (event.isRightDown())
-			mForceMode = -0.25f;
+		mMousePos.clear();
+		mMousePos.push_back(vec3(event.getPos(), 0.0));
 	}
 
 }
@@ -212,17 +308,26 @@ void ITA_ForcesApp::mouseUp(MouseEvent event)
 }
 void ITA_ForcesApp::update()
 {
-	updateDS();
+	if (!mMouseInput)
+	{
+		if (mIsRunning)
+			updateRS();
+	}
+	else
+		mNumInputs = 1.0f;
+
 	if (mIdle)
 		mForceMode *= mParamDamping;
 	mId = 1 - mId;
 
 	gl::ScopedGlslProg tfShader(mShaderTF);
-	mShaderTF->uniform("u_ForcePos", vec3(mMousePos.x, mMousePos.y, 0.0f));
+	//mShaderTF->uniform("u_ForcePos", vec3(mMousePos.x, mMousePos.y, 0.0f));
+	mShaderTF->uniform("u_ForcePos", mMousePos.data(), 2);
+	mShaderTF->uniform("u_Count", mNumInputs);
 	mShaderTF->uniform("u_ForceScale", mForceMode);
-	mShaderTF->uniform("u_Radius", mParamRadius);
-	mShaderTF->uniform("u_MagScale", mParamMagScale);
-	mShaderTF->uniform("u_Damping", mParamDamping);
+	mShaderTF->uniform("u_Radius", P_RADIUS);
+	mShaderTF->uniform("u_MagScale", P_MAG);
+	mShaderTF->uniform("u_Damping", P_DAMP);
 	mShaderTF->uniform("u_Bounds", vec2(getWindowSize()));
 
 	gl::ScopedVao tfVao(mVao[mId]);
@@ -230,53 +335,37 @@ void ITA_ForcesApp::update()
 
 	mTfo[1 - mId]->bind();
 	gl::beginTransformFeedback(GL_POINTS);
-	gl::drawArrays(GL_POINTS, 0, NUM_X*NUM_Y);
+	gl::drawArrays(GL_POINTS, 0, NUM_PTS.x*NUM_PTS.y);
 	gl::endTransformFeedback();
 }
 
-void ITA_ForcesApp::updateDS()
+void ITA_ForcesApp::updateRS()
 {
-	mDS->update();
-	auto depthChan = mDS->getDepthFrame();
-	mChanCv = Channel8u::create(depthChan->getWidth(), depthChan->getHeight());
-
-	auto iter = mChanCv->getIter();
-
-	float closest = 1000.0f;
-	ivec2 closestPt = ivec2();
-	while (iter.line())
+	if (mIsRunning)
 	{
-		while (iter.pixel())
+		if (mRS->AcquireFrame(false,0) >= PXC_STATUS_NO_ERROR)
 		{
-			iter.v() = 64;
-			float v = (float)depthChan->getValue(ivec2(iter.x(), iter.y()));
-			if (v > mParamMinDepth && v < mParamMaxDepth)
+			mHandData->Update();
+			getRSCursorPos();
+			getRSGestureState();
+
+			auto sample = mRS->QuerySample();
+			if (sample != nullptr)
 			{
-				mChanCv->setValue(ivec2(iter.x(), iter.y()), 255);
-				if (v < closest)
+				auto rgb = sample->color;
+				if (rgb != nullptr)
 				{
-					closest = v;
-					closestPt.x = iter.x();
-					closestPt.y = iter.y();
+					PXCImage::ImageData rgbData;
+					if (rgb->AcquireAccess(PXCImage::ACCESS_READ, PXCImage::PIXEL_FORMAT_RGB32, &rgbData) >= PXC_STATUS_NO_ERROR)
+					{
+						auto srf = Surface8u::create(rgbData.planes[0], RGB_SIZE.x, RGB_SIZE.y, rgbData.pitches[0], SurfaceChannelOrder::BGRA);
+						auto chan = Channel8u::create(*srf);
+						mTexRgb = gl::Texture2d::create(*chan);
+						rgb->ReleaseAccess(&rgbData);
+					}
 				}
 			}
-		}
-	}
-
-	if (!mMouseInput)
-	{
-		if (closest < 1000.0f)
-		{
-			mIdle = false;
-			mForceMode = 0.75f;
-			vec2 ws = (vec2)getWindowSize();
-			float scaleX = ws.x / 480.0f;
-			float scaleY = ws.y / 360.0f;
-			mMousePos = vec2(closestPt)*vec2(scaleX, scaleY);
-		}
-		else
-		{
-			mIdle = true;
+			mRS->ReleaseFrame();
 		}
 	}
 }
@@ -285,30 +374,120 @@ void ITA_ForcesApp::draw()
 {
 
 	gl::clear( Color( 0, 0, 0 ) ); 
-	gl::enableAlphaBlending();
-	gl::color(Color::white());
+
+	
 	gl::setMatricesWindow(getWindowSize());
-
+	if (mTexRgb)
+	{
+		gl::color(Color(0.15,0.45,1));
+		gl::draw(mTexRgb, Rectf(0, 0, getWindowWidth(), getWindowHeight()));
+	}
 	gl::ScopedVao vao(mVao[1-mId]);
+	mShaderDraw->uniform("u_Bounds", vec2(getWindowSize()));
 	gl::ScopedGlslProg shader(mShaderDraw);
+
+	gl::enableAdditiveBlending();
 	gl::setDefaultShaderVars();
-	gl::drawArrays(GL_POINTS, 0, NUM_X*NUM_Y);
-
-	gl::color(ColorA(1, 1, 1, 0.5));
-
-	ivec2 ws = getWindowSize();
-
-	auto debugTex = gl::Texture2d::create(*mChanCv);
-	gl::draw(debugTex, Rectf(ws.x-240,ws.y-180,ws.x,ws.y));
+	gl::drawArrays(GL_POINTS, 0, NUM_PTS.x*NUM_PTS.y);
 
 	gl::disableAlphaBlending();
 	gl::color(Color::white());
-	mGUI->draw();
+	//mGUI->draw();
 }
 
 void ITA_ForcesApp::cleanup()
 {
-	mDS->stop();
+	if (mIsRunning) {
+		mRS->Close();
+		try {
+			mMapper->Release();
+		}
+		catch (...) {
+		
+		}
+ 	}
 }
 
-CINDER_APP( ITA_ForcesApp, RendererGl )
+void ITA_ForcesApp::getRSCursorPos()
+{
+	mHasHand = false;
+	mMousePos.clear();
+	auto numHands = mHandData->QueryNumberOfHands();
+	pxcUID handId;
+
+	mNumInputs = 0.0f;
+	for (int i = 0; i < numHands; ++i)
+	{
+		if (mHandData->QueryHandId(PXCHandData::ACCESS_ORDER_BY_ID, i, handId) >= PXC_STATUS_NO_ERROR)
+		{
+			PXCHandData::IHand *hand;
+			if (mHandData->QueryHandDataById(handId, hand) >= PXC_STATUS_NO_ERROR)
+			{
+				if (hand->HasCursor())
+				{
+					PXCHandData::ICursor *cursor;
+					if (hand->QueryCursor(cursor) >= PXC_STATUS_NO_ERROR)
+					{
+						auto cursorPos = cursor->QueryPointImage();
+
+						// Mapping block
+						PXCPoint3DF32 uvz[1]{ cursorPos };
+						uvz[0].z *= 1000.0f;
+						PXCPointF32 ijj[1];
+						auto stat = mMapper->MapDepthToColor(1, uvz, ijj);
+						//
+						if(!mMouseInput) 
+							mMousePos.push_back( vec3(remapPos(vec2(ijj[0].x, ijj[0].y)), 0.0));
+
+						mHasHand = true;
+						mNumInputs += 1.0f;
+					}
+				}
+			}
+		}
+	}
+
+	if (numHands < 1)
+		mIdle = true;
+	else
+		mIdle = false;
+
+	mForceMode = mRepulsing ? FORCE_R : FORCE_A;
+}
+
+void ITA_ForcesApp::getRSGestureState()
+{
+	auto numGestures = mHandData->QueryFiredGesturesNumber();
+	for (int j = 0; j < numGestures; ++j)
+	{
+		PXCHandData::GestureData gestData;
+		if (mHandData->QueryFiredGestureData(j, gestData) >= PXC_STATUS_NO_ERROR)
+		{
+			PXCHandData::IHand *hand;
+			if (mHandData->QueryHandDataById(gestData.handId, hand) >= PXC_STATUS_NO_ERROR)
+			{
+				std::wstring str(gestData.name);
+				if (str.find(L"cursor_click") != std::string::npos)
+				{
+					if (mHasHand)
+						mRepulsing = !mRepulsing;
+				}
+			}
+		}
+	}
+}
+
+vec2 ITA_ForcesApp::remapPos(const vec2 &pPos)
+{
+	auto bounds = getWindowSize();
+	return vec2(lmap<float>(pPos.x, mActiveX.x, mActiveX.y, 0, bounds.x), lmap<float>(pPos.y, mActiveY.x, mActiveY.y, 0, bounds.y));
+}
+
+void prepareSettings(App::Settings *pSettings)
+{
+	pSettings->setWindowSize(WIN_SIZE);
+	pSettings->setWindowPos(40, 40);
+	pSettings->setFrameRate(60.0f);
+}
+
+CINDER_APP( ITA_ForcesApp, RendererGl, prepareSettings )

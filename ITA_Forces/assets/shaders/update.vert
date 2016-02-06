@@ -3,7 +3,8 @@
 // https://github.com/neilmendoza/ofxGpuParticles
 
 #version 150 core
-uniform vec3	u_ForcePos;
+uniform vec3	u_ForcePos[2];
+uniform float	u_Count;
 uniform float	u_ForceScale;
 uniform float	u_Radius;
 uniform float	u_MagScale;
@@ -17,16 +18,20 @@ out vec3 o_Velocity;
 
 void main()
 {
-	vec3 direction = u_ForcePos - v_Position;
+	vec3 force = vec3(0);
+	int f = int(u_Count);
+	for(int i=0;i<f;++i)
+	{
+		vec3 direction = u_ForcePos[i] - v_Position;
 
-	float radSq = 1920*1080*u_Radius;
-	float mag = length(direction);
-    float distSquared = mag*mag;
-    float magnitude = u_MagScale * (1.0 - distSquared / radSq);
+		float radSq = (u_Bounds.x+u_Bounds.y)*u_Radius;
+		float mag = length(direction);
+		float distSquared = mag*mag;
+		float magnitude = u_MagScale * (1.0 - distSquared / radSq);
 
-    vec3 force = step(distSquared, radSq) * magnitude * normalize(direction);
-    o_Velocity = v_Velocity + force;
-    
+		force += step(distSquared, radSq) * magnitude * normalize(direction);
+    }
+	o_Velocity = v_Velocity + force;	
     o_Velocity *= u_Damping;
     o_Position = v_Position + o_Velocity*u_ForceScale;
 	
